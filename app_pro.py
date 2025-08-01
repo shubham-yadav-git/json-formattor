@@ -80,6 +80,11 @@ HTML_TEMPLATE = """
         .output-area {
             background: white; white-space: pre-wrap; word-wrap: break-word;
             overflow-y: auto; cursor: text; border: 2px solid #e9ecef;
+            color: #212529; min-height: 100px;
+        }
+        
+        .output-area.tree {
+            white-space: normal; padding: 10px;
         }
         
         .controls {
@@ -194,14 +199,64 @@ HTML_TEMPLATE = """
         
         .json-tree {
             font-family: 'Courier New', Monaco, monospace; font-size: 14px;
-            line-height: 1.4;
+            line-height: 1.6; background: #fafafa; padding: 15px;
+            border-radius: 8px; border: 1px solid #e0e0e0;
         }
         
-        .json-key { color: #0066cc; font-weight: bold; }
+        .json-key { color: #0066cc; font-weight: bold; cursor: pointer; }
         .json-string { color: #009900; }
-        .json-number { color: #cc6600; }
+        .json-number { color: #cc6600; font-weight: 600; }
         .json-boolean { color: #990099; font-weight: bold; }
         .json-null { color: #999999; font-style: italic; }
+        
+        .json-expandable {
+            cursor: pointer; user-select: none; position: relative;
+            padding-left: 20px; margin: 2px 0;
+        }
+        
+        .json-expandable:before {
+            content: '▼'; position: absolute; left: 0; top: 0;
+            color: #666; font-size: 12px; transition: transform 0.2s;
+        }
+        
+        .json-expandable.collapsed:before {
+            transform: rotate(-90deg);
+        }
+        
+        .json-expandable.collapsed + .json-content {
+            display: none;
+        }
+        
+        .json-content {
+            margin-left: 15px; border-left: 2px solid #e0e0e0;
+            padding-left: 10px; transition: all 0.2s;
+        }
+        
+        .json-item {
+            margin: 3px 0; padding: 2px 0;
+        }
+        
+        .json-item:hover {
+            background-color: rgba(0, 102, 204, 0.1);
+            border-radius: 3px;
+        }
+        
+        .json-count {
+            color: #666; font-size: 12px; font-weight: normal;
+            margin-left: 5px; opacity: 0.7;
+        }
+        
+        .json-type-indicator {
+            display: inline-block; width: 8px; height: 8px;
+            border-radius: 50%; margin-right: 5px; vertical-align: middle;
+        }
+        
+        .json-type-object { background-color: #0066cc; }
+        .json-type-array { background-color: #cc6600; }
+        .json-type-string { background-color: #009900; }
+        .json-type-number { background-color: #cc6600; }
+        .json-type-boolean { background-color: #990099; }
+        .json-type-null { background-color: #999999; }
         
         .error-highlight {
             background-color: #ffebee; border: 1px solid #f44336;
@@ -360,41 +415,101 @@ Example:
             currentResult = typeof content === 'string' ? content : outputArea.textContent;
         }
 
-        function createTreeView(obj, indent = 0) {
-            const indentStr = '  '.repeat(indent);
+        function createTreeView(obj, path = 'root', isRoot = true) {
             let html = '';
             
-            if (Array.isArray(obj)) {
-                html += '[<br>';
-                obj.forEach((item, index) => {
-                    html += indentStr + '  ';
-                    html += createTreeView(item, indent + 1);
-                    if (index < obj.length - 1) html += ',';
-                    html += '<br>';
-                });
-                html += indentStr + ']';
-            } else if (obj !== null && typeof obj === 'object') {
-                html += '{<br>';
-                const keys = Object.keys(obj);
-                keys.forEach((key, index) => {
-                    html += indentStr + '  ';
-                    html += `<span class="json-key">"${key}"</span>: `;
-                    html += createTreeView(obj[key], indent + 1);
-                    if (index < keys.length - 1) html += ',';
-                    html += '<br>';
-                });
-                html += indentStr + '}';
-            } else if (typeof obj === 'string') {
-                html += `<span class="json-string">"${obj}"</span>`;
-            } else if (typeof obj === 'number') {
-                html += `<span class="json-number">${obj}</span>`;
-            } else if (typeof obj === 'boolean') {
-                html += `<span class="json-boolean">${obj}</span>`;
-            } else if (obj === null) {
-                html += `<span class="json-null">null</span>`;
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+            
+            function getTypeIndicator(value) {
+                if (Array.isArray(value)) return '<span class="json-type-indicator json-type-array"></span>';
+                if (value === null) return '<span class="json-type-indicator json-type-null"></span>';
+                if (typeof value === 'object') return '<span class="json-type-indicator json-type-object"></span>';
+                if (typeof value === 'string') return '<span class="json-type-indicator json-type-string"></span>';
+                if (typeof value === 'number') return '<span class="json-type-indicator json-type-number"></span>';
+                if (typeof value === 'boolean') return '<span class="json-type-indicator json-type-boolean"></span>';
+                return '';
+            }
+            
+            function createExpandableItem(key, value, itemPath, isLast = false) {
+                const uniqueId = `tree-${Math.random().toString(36).substr(2, 9)}`;
+                let html = '<div class="json-item">';
+                
+                if (Array.isArray(value)) {
+                    const count = value.length;
+                    html += `<div class="json-expandable" onclick="toggleTreeNode('${uniqueId}')">`;
+                    html += getTypeIndicator(value);
+                    if (key !== null) html += `<span class="json-key">"${escapeHtml(key)}"</span>: `;
+                    html += `[<span class="json-count">${count} items</span>]`;
+                    html += '</div>';
+                    html += `<div class="json-content" id="${uniqueId}">`;
+                    
+                    value.forEach((item, index) => {
+                        html += createExpandableItem(null, item, `${itemPath}[${index}]`, index === value.length - 1);
+                    });
+                    
+                    html += '</div>';
+                } else if (value !== null && typeof value === 'object') {
+                    const keys = Object.keys(value);
+                    const count = keys.length;
+                    html += `<div class="json-expandable" onclick="toggleTreeNode('${uniqueId}')">`;
+                    html += getTypeIndicator(value);
+                    if (key !== null) html += `<span class="json-key">"${escapeHtml(key)}"</span>: `;
+                    html += `{<span class="json-count">${count} keys</span>}`;
+                    html += '</div>';
+                    html += `<div class="json-content" id="${uniqueId}">`;
+                    
+                    keys.forEach((objKey, index) => {
+                        html += createExpandableItem(objKey, value[objKey], `${itemPath}.${objKey}`, index === keys.length - 1);
+                    });
+                    
+                    html += '</div>';
+                } else {
+                    // Leaf node
+                    html += '<div>';
+                    html += getTypeIndicator(value);
+                    if (key !== null) html += `<span class="json-key">"${escapeHtml(key)}"</span>: `;
+                    
+                    if (typeof value === 'string') {
+                        html += `<span class="json-string">"${escapeHtml(value)}"</span>`;
+                    } else if (typeof value === 'number') {
+                        html += `<span class="json-number">${value}</span>`;
+                    } else if (typeof value === 'boolean') {
+                        html += `<span class="json-boolean">${value}</span>`;
+                    } else if (value === null) {
+                        html += `<span class="json-null">null</span>`;
+                    }
+                    
+                    html += '</div>';
+                }
+                
+                html += '</div>';
+                return html;
+            }
+            
+            if (isRoot) {
+                html = createExpandableItem(null, obj, path);
+            } else {
+                html = createExpandableItem(null, obj, path);
             }
             
             return html;
+        }
+        
+        function toggleTreeNode(nodeId) {
+            const node = document.getElementById(nodeId);
+            const expandable = node.previousElementSibling;
+            
+            if (node.style.display === 'none') {
+                node.style.display = 'block';
+                expandable.classList.remove('collapsed');
+            } else {
+                node.style.display = 'none';
+                expandable.classList.add('collapsed');
+            }
         }
 
         function updateStats(originalLength, resultLength, jsonObj = null) {
